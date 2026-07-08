@@ -61,13 +61,49 @@
   .dot { width: 10px; height: 10px; border-radius: 50%; }
   .hint { font-size: 13px; color: #94a3b8; }
   .me { border-color: var(--accent); color: var(--accent); }
+
+  #touch-controls {
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(3, 56px);
+    gap: 6px;
+    touch-action: none;
+    user-select: none;
+  }
+  #touch-controls button {
+    font-size: 22px;
+    border: 1px solid #334155;
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #touch-controls button:active {
+    background: var(--accent);
+    color: #0f172a;
+  }
+  #btn-up { grid-column: 2; grid-row: 1; }
+  #btn-left { grid-column: 1; grid-row: 2; }
+  #btn-down { grid-column: 2; grid-row: 2; }
+  #btn-right { grid-column: 3; grid-row: 2; }
 </style>
 </head>
 <body>
   <h1>🔵 Кружки — мультиплеер</h1>
   <div id="status" class="disconnected">Подключение...</div>
   <canvas id="board"></canvas>
-  <div class="hint">Управление: стрелки ← ↑ → ↓ или W A S D</div>
+  <div class="hint">Компьютер: стрелки ← ↑ → ↓ или W A S D. Телефон: кнопки ниже (или свайп по полю)</div>
+
+  <div id="touch-controls">
+    <button id="btn-up">↑</button>
+    <button id="btn-left">←</button>
+    <button id="btn-down">↓</button>
+    <button id="btn-right">→</button>
+  </div>
+
   <div id="players"></div>
 
 <script>
@@ -181,10 +217,47 @@
     const dir = keyToDir[e.code];
     if (!dir) return;
     e.preventDefault();
+    sendMove(dir);
+  });
+
+  function sendMove(dir) {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'move', dir }));
     }
-  });
+  }
+
+  // --- Кнопки на экране (для телефона) ---
+  document.getElementById('btn-up').addEventListener('click', () => sendMove('up'));
+  document.getElementById('btn-down').addEventListener('click', () => sendMove('down'));
+  document.getElementById('btn-left').addEventListener('click', () => sendMove('left'));
+  document.getElementById('btn-right').addEventListener('click', () => sendMove('right'));
+
+  // --- Свайпы прямо по игровому полю ---
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  canvas.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    const SWIPE_THRESHOLD = 20;
+
+    if (Math.max(absDx, absDy) < SWIPE_THRESHOLD) return;
+
+    if (absDx > absDy) {
+      sendMove(dx > 0 ? 'right' : 'left');
+    } else {
+      sendMove(dy > 0 ? 'down' : 'up');
+    }
+  }, { passive: true });
 </script>
 </body>
 </html>
