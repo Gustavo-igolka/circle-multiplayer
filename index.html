@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Кружки-мультиплеер</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --grid-line: #334155;
+    --text: #e2e8f0;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    background: radial-gradient(circle at top, #1e293b, #0f172a 70%);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+  }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.3px; }
+  #status {
+    font-size: 14px;
+    color: #94a3b8;
+    padding: 6px 14px;
+    background: var(--panel);
+    border-radius: 999px;
+    border: 1px solid #334155;
+  }
+  #status.connected { color: #4ade80; border-color: #4ade80; }
+  #status.disconnected { color: #f87171; border-color: #f87171; }
+  canvas {
+    background: var(--panel);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    border: 1px solid #334155;
+  }
+  #players {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 640px;
+    justify-content: center;
+  }
+  .player-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid #334155;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .hint { font-size: 13px; color: #94a3b8; }
+  .me { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+  <h1>🔵 Кружки — мультиплеер</h1>
+  <div id="status" class="disconnected">Подключение...</div>
+  <canvas id="board"></canvas>
+  <div class="hint">Управление: стрелки ← ↑ → ↓ или W A S D</div>
+  <div id="players"></div>
+
+<script>
+  const CELL = 34; // размер клетки в пикселях
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const playersEl = document.getElementById('players');
+
+  let myId = null;
+  let grid = { width: 20, height: 15 };
+  let players = [];
+
+  function resizeCanvas() {
+    canvas.width = grid.width * CELL;
+    canvas.height = grid.height * CELL;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // сетка
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= grid.width; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * CELL, 0);
+      ctx.lineTo(x * CELL, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= grid.height; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * CELL);
+      ctx.lineTo(canvas.width, y * CELL);
+      ctx.stroke();
+    }
+
+    // игроки
+    players.forEach(p => {
+      const cx = p.x * CELL + CELL / 2;
+      const cy = p.y * CELL + CELL / 2;
+      const r = CELL * 0.35;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+
+      if (p.id === myId) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#f8fafc';
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.id, cx, cy);
+    });
+  }
+
+  function renderPlayerList() {
+    playersEl.innerHTML = '';
+    players.forEach(p => {
+      const chip = document.createElement('div');
+      chip.className = 'player-chip' + (p.id === myId ? ' me' : '');
+      chip.innerHTML = `<span class="dot" style="background:${p.color}"></span>${p.name}${p.id === myId ? ' (вы)' : ''}`;
+      playersEl.appendChild(chip);
+    });
+  }
+
+  // --- WebSocket ---
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${protocol}://${location.host}`);
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Подключено';
+    statusEl.className = 'connected';
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Соединение потеряно';
+    statusEl.className = 'disconnected';
+  };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'welcome') {
+      myId = data.id;
+      grid = data.grid;
+      resizeCanvas();
+    } else if (data.type === 'state') {
+      players = data.players;
+      grid = data.grid;
+      resizeCanvas();
+      draw();
+      renderPlayerList();
+    }
+  };
+
+  // --- Управление ---
+  const keyToDir = {
+    ArrowUp: 'up', KeyW: 'up',
+    ArrowDown: 'down', KeyS: 'down',
+    ArrowLeft: 'left', KeyA: 'left',
+    ArrowRight: 'right', KeyD: 'right',
+  };
+
+  window.addEventListener('keydown', (e) => {
+    const dir = keyToDir[e.code];
+    if (!dir) return;
+    e.preventDefault();
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'move', dir }));
+    }
+  });
+</script>
+</body>
+</html>
