@@ -1,12 +1,16 @@
 {
-  "name": "circle-multiplayer",
+  "name": "dark-forest-horror",
   "version": "1.0.0",
-  "description": "Простой мультиплеер: кружки-игроки ходят по клеточной карте",
+  "description": "Асимметричная мультиплеерная хоррор-игра: 1 Маньяк против 3 Выживших",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "ws": "^8.18.0"
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
   }
 }

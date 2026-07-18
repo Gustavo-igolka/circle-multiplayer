@@ -1,263 +1,103 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>Кружки-мультиплеер</title>
-<style>
-  :root {
-    --bg: #0f172a;
-    --panel: #1e293b;
-    --grid-line: #334155;
-    --text: #e2e8f0;
-    --accent: #38bdf8;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    padding: 24px;
-    background: radial-gradient(circle at top, #1e293b, #0f172a 70%);
-    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    color: var(--text);
-  }
-  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.3px; }
-  #status {
-    font-size: 14px;
-    color: #94a3b8;
-    padding: 6px 14px;
-    background: var(--panel);
-    border-radius: 999px;
-    border: 1px solid #334155;
-  }
-  #status.connected { color: #4ade80; border-color: #4ade80; }
-  #status.disconnected { color: #f87171; border-color: #f87171; }
-  canvas {
-    background: var(--panel);
-    border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-    border: 1px solid #334155;
-  }
-  #players {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    max-width: 640px;
-    justify-content: center;
-  }
-  .player-chip {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--panel);
-    border: 1px solid #334155;
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 13px;
-  }
-  .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .hint { font-size: 13px; color: #94a3b8; }
-  .me { border-color: var(--accent); color: var(--accent); }
-
-  #touch-controls {
-    display: grid;
-    grid-template-columns: repeat(3, 56px);
-    grid-template-rows: repeat(3, 56px);
-    gap: 6px;
-    touch-action: none;
-    user-select: none;
-  }
-  #touch-controls button {
-    font-size: 22px;
-    border: 1px solid #334155;
-    background: var(--panel);
-    color: var(--text);
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-tap-highlight-color: transparent;
-  }
-  #touch-controls button:active {
-    background: var(--accent);
-    color: #0f172a;
-  }
-  #btn-up { grid-column: 2; grid-row: 1; }
-  #btn-left { grid-column: 1; grid-row: 2; }
-  #btn-down { grid-column: 2; grid-row: 2; }
-  #btn-right { grid-column: 3; grid-row: 2; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Тёмный Лес — Хоррор</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
+        html, body {
+            background: #0a0a0a;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
+        }
+        body {
+            display: flex; justify-content: center; align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+        }
+        .game-wrapper {
+            border: 8px solid #1a1410;
+            border-radius: 8px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.9), inset 0 0 10px rgba(0,0,0,0.8);
+            background: #0d0a08;
+            padding: 5px;
+        }
+        canvas { display: block; border-radius: 2px; touch-action: none; }
+        .instruction {
+            position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.85); color: #8a7a5a; padding: 6px 14px;
+            border-radius: 30px; font-size: 12px; letter-spacing: 1px;
+            border: 1px solid #3a2a1a; pointer-events: none; text-shadow: 1px 1px 2px black;
+            white-space: nowrap; z-index: 10;
+        }
+        .lobby-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 100; color: #ccc;
+        }
+        .lobby-panel {
+            background: #1a1a1a; padding: 30px 40px; border-radius: 16px;
+            border: 1px solid #333; min-width: 300px; max-width: 90vw; text-align: center;
+        }
+        .lobby-panel h1 { color: #d4a373; margin-bottom: 20px; font-size: 26px; letter-spacing: 2px; }
+        .lobby-panel input {
+            width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #444;
+            border-radius: 8px; color: #fff; margin-bottom: 12px; font-size: 16px;
+        }
+        .lobby-panel button {
+            width: 100%; padding: 12px; border-radius: 8px; font-weight: bold;
+            cursor: pointer; transition: 0.2s; font-size: 16px; margin-bottom: 8px;
+        }
+        .row-buttons { display: flex; gap: 8px; }
+        .row-buttons button { flex: 1; }
+        #createBtn { background: #3a2a1a; border: 1px solid #d4a373; color: #d4a373; }
+        #joinBtn { background: #2a2a3a; border: 1px solid #a3b8d4; color: #a3b8d4; }
+        #startGameBtn { display: none; background: #4a6a3a; border: 1px solid #7aaa5a; color: #fff; }
+        #roomCodeDisplay { color: #d4a373; font-size: 14px; margin: 8px 0; letter-spacing: 2px; }
+        .players-list { margin-top: 16px; font-size: 14px; color: #888; text-align: left; }
+        .players-list div { padding: 4px 0; }
+        #statusMsg { color: #c56a6a; font-size: 13px; min-height: 18px; margin-top: 6px; }
+    </style>
 </head>
 <body>
-  <h1>🔵 Кружки — мультиплеер</h1>
-  <div id="status" class="disconnected">Подключение...</div>
-  <canvas id="board"></canvas>
-  <div class="hint">Компьютер: стрелки ← ↑ → ↓ или W A S D. Телефон: кнопки ниже (или свайп по полю)</div>
 
-  <div id="touch-controls">
-    <button id="btn-up">↑</button>
-    <button id="btn-left">←</button>
-    <button id="btn-down">↓</button>
-    <button id="btn-right">→</button>
-  </div>
+    <div id="lobbyOverlay" class="lobby-overlay">
+        <div class="lobby-panel">
+            <h1>🔦 Тёмный Лес</h1>
+            <input id="playerName" type="text" placeholder="Ваше имя..." maxlength="20">
+            <div class="row-buttons">
+                <button id="createBtn">Создать комнату</button>
+            </div>
+            <input id="roomCode" type="text" placeholder="Код комнаты..." maxlength="4" style="text-transform:uppercase; margin-top:8px;">
+            <div class="row-buttons">
+                <button id="joinBtn">Войти по коду</button>
+            </div>
+            <div id="roomCodeDisplay"></div>
+            <div id="statusMsg"></div>
+            <div id="playersList" class="players-list">
+                <div style="color:#555;">Ожидание игроков...</div>
+            </div>
+            <button id="startGameBtn">Начать игру</button>
+        </div>
+    </div>
 
-  <div id="players"></div>
+    <div class="game-wrapper">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+    <div class="instruction">WASD / стрелки, либо джойстик пальцем слева</div>
 
-<script>
-  const CELL = 34; // размер клетки в пикселях
-  const canvas = document.getElementById('board');
-  const ctx = canvas.getContext('2d');
-  const statusEl = document.getElementById('status');
-  const playersEl = document.getElementById('players');
+    <!-- Музыка: положи свои файлы в /public/music/ с этими именами (см. пояснение в чате) -->
+    <audio id="bgMusic" loop preload="auto">
+        <source src="/music/ambient.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="chaseMusic" loop preload="auto">
+        <source src="/music/chase.mp3" type="audio/mpeg">
+    </audio>
 
-  let myId = null;
-  let grid = { width: 20, height: 15 };
-  let players = [];
-
-  function resizeCanvas() {
-    canvas.width = grid.width * CELL;
-    canvas.height = grid.height * CELL;
-  }
-
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // сетка
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= grid.width; x++) {
-      ctx.beginPath();
-      ctx.moveTo(x * CELL, 0);
-      ctx.lineTo(x * CELL, canvas.height);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= grid.height; y++) {
-      ctx.beginPath();
-      ctx.moveTo(0, y * CELL);
-      ctx.lineTo(canvas.width, y * CELL);
-      ctx.stroke();
-    }
-
-    // игроки
-    players.forEach(p => {
-      const cx = p.x * CELL + CELL / 2;
-      const cy = p.y * CELL + CELL / 2;
-      const r = CELL * 0.35;
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = p.color;
-      ctx.fill();
-
-      if (p.id === myId) {
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#f8fafc';
-        ctx.stroke();
-      }
-
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(p.id, cx, cy);
-    });
-  }
-
-  function renderPlayerList() {
-    playersEl.innerHTML = '';
-    players.forEach(p => {
-      const chip = document.createElement('div');
-      chip.className = 'player-chip' + (p.id === myId ? ' me' : '');
-      chip.innerHTML = `<span class="dot" style="background:${p.color}"></span>${p.name}${p.id === myId ? ' (вы)' : ''}`;
-      playersEl.appendChild(chip);
-    });
-  }
-
-  // --- WebSocket ---
-  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${protocol}://${location.host}`);
-
-  ws.onopen = () => {
-    statusEl.textContent = 'Подключено';
-    statusEl.className = 'connected';
-  };
-
-  ws.onclose = () => {
-    statusEl.textContent = 'Соединение потеряно';
-    statusEl.className = 'disconnected';
-  };
-
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'welcome') {
-      myId = data.id;
-      grid = data.grid;
-      resizeCanvas();
-    } else if (data.type === 'state') {
-      players = data.players;
-      grid = data.grid;
-      resizeCanvas();
-      draw();
-      renderPlayerList();
-    }
-  };
-
-  // --- Управление ---
-  const keyToDir = {
-    ArrowUp: 'up', KeyW: 'up',
-    ArrowDown: 'down', KeyS: 'down',
-    ArrowLeft: 'left', KeyA: 'left',
-    ArrowRight: 'right', KeyD: 'right',
-  };
-
-  window.addEventListener('keydown', (e) => {
-    const dir = keyToDir[e.code];
-    if (!dir) return;
-    e.preventDefault();
-    sendMove(dir);
-  });
-
-  function sendMove(dir) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'move', dir }));
-    }
-  }
-
-  // --- Кнопки на экране (для телефона) ---
-  document.getElementById('btn-up').addEventListener('click', () => sendMove('up'));
-  document.getElementById('btn-down').addEventListener('click', () => sendMove('down'));
-  document.getElementById('btn-left').addEventListener('click', () => sendMove('left'));
-  document.getElementById('btn-right').addEventListener('click', () => sendMove('right'));
-
-  // --- Свайпы прямо по игровому полю ---
-  let touchStartX = 0;
-  let touchStartY = 0;
-
-  canvas.addEventListener('touchstart', (e) => {
-    const t = e.changedTouches[0];
-    touchStartX = t.clientX;
-    touchStartY = t.clientY;
-  }, { passive: true });
-
-  canvas.addEventListener('touchend', (e) => {
-    const t = e.changedTouches[0];
-    const dx = t.clientX - touchStartX;
-    const dy = t.clientY - touchStartY;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    const SWIPE_THRESHOLD = 20;
-
-    if (Math.max(absDx, absDy) < SWIPE_THRESHOLD) return;
-
-    if (absDx > absDy) {
-      sendMove(dx > 0 ? 'right' : 'left');
-    } else {
-      sendMove(dy > 0 ? 'down' : 'up');
-    }
-  }, { passive: true });
-</script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/shared/person.js"></script>
+    <script src="/engine.js"></script>
 </body>
 </html>

@@ -1,116 +1,221 @@
 // server.js
-// Простой мультиплеерный сервер: каждый подключившийся клиент получает кружок-игрока,
-// который может ходить по клеточной карте (grid). Синхронизация в реальном времени через WebSocket.
+// Авторитетный сервер комнат для асимметричной хоррор-игры.
+// 1 игрок получает роль Маньяка, остальные (до 3) — Выжившие.
 
-const WebSocket = require('ws');
-const http = require('http');
-const fs = require('fs');
 const path = require('path');
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const Person = require('./shared/person.js');
 
-const PORT = process.env.PORT || 8080;
-
-// --- Настройки карты ---
-const GRID_WIDTH = 20;
-const GRID_HEIGHT = 15;
-
-// --- Состояние игры ---
-const players = new Map(); // id -> { id, x, y, color, name }
-let nextId = 1;
-
-const COLORS = [
-  '#e74c3c', '#3498db', '#2ecc71', '#f1c40f',
-  '#9b59b6', '#e67e22', '#1abc9c', '#fd79a8'
-];
-
-function randomEmptyCell() {
-  let x, y, occupied;
-  do {
-    x = Math.floor(Math.random() * GRID_WIDTH);
-    y = Math.floor(Math.random() * GRID_HEIGHT);
-    occupied = [...players.values()].some(p => p.x === x && p.y === y);
-  } while (occupied);
-  return { x, y };
-}
-
-// --- Простой статический сервер для index.html (чтобы не поднимать отдельно) ---
-const server = http.createServer((req, res) => {
-  let filePath = req.url === '/' ? '/index.html' : req.url;
-  filePath = path.join(__dirname, filePath);
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-    const ext = path.extname(filePath);
-    const type = ext === '.html' ? 'text/html' : ext === '.js' ? 'text/javascript' : 'text/plain';
-    res.writeHead(200, { 'Content-Type': type });
-    res.end(data);
-  });
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: '*' }
 });
 
-const wss = new WebSocket.Server({ server });
+// Отдаём клиентские файлы и общий модуль person.js
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/shared', express.static(path.join(__dirname, 'shared')));
 
-function broadcastState() {
-  const state = {
-    type: 'state',
-    players: [...players.values()],
-    grid: { width: GRID_WIDTH, height: GRID_HEIGHT }
-  };
-  const msg = JSON.stringify(state);
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg);
-  });
+// Простой health-check эндпоинт — пригодится для keep-alive пинга (см. инструкцию по деплою)
+app.get('/health', (req, res) => res.send('ok'));
+
+const TICK_RATE = 30;          // симуляция, раз в секунду
+const BROADCAST_RATE = 15;     // рассылка состояния клиентам, раз в секунду
+const MAX_PLAYERS = 4;
+const ROUND_TIME = 180;        // секунд на раунд — выжившие побеждают, если продержались
+
+const rooms = new Map(); // code -> room
+
+function makeRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code;
+    do {
+        code = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    } while (rooms.has(code));
+    return code;
 }
 
-wss.on('connection', (ws) => {
-  const id = nextId++;
-  const { x, y } = randomEmptyCell();
-  const color = COLORS[id % COLORS.length];
-  const player = { id, x, y, color, name: `Игрок ${id}` };
-  players.set(id, player);
+function createRoom() {
+    const code = makeRoomCode();
+    const room = {
+        code,
+        players: new Map(), // socketId -> person + meta
+        obstacles: Person.generateObstacles(),
+        started: false,
+        timeLeft: ROUND_TIME,
+        tickTimer: null,
+        broadcastTimer: null,
+        roundTimer: null
+    };
+    rooms.set(code, room);
+    return room;
+}
 
-  console.log(`Игрок ${id} подключился (${players.size} онлайн)`);
+function lobbyPayload(room) {
+    return {
+        code: room.code,
+        players: Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name })),
+        canStart: room.players.size >= 2 && room.players.size <= MAX_PLAYERS
+    };
+}
 
-  // Сообщаем новому клиенту его id и параметры карты
-  ws.send(JSON.stringify({ type: 'welcome', id, grid: { width: GRID_WIDTH, height: GRID_HEIGHT } }));
-  broadcastState();
-
-  ws.on('message', (raw) => {
-    let data;
-    try { data = JSON.parse(raw); } catch { return; }
-
-    if (data.type === 'move') {
-      const p = players.get(id);
-      if (!p) return;
-
-      let { x: nx, y: ny } = p;
-      if (data.dir === 'up') ny -= 1;
-      else if (data.dir === 'down') ny += 1;
-      else if (data.dir === 'left') nx -= 1;
-      else if (data.dir === 'right') nx += 1;
-      else return;
-
-      // Границы карты
-      if (nx < 0 || nx >= GRID_WIDTH || ny < 0 || ny >= GRID_HEIGHT) return;
-
-      // Клетка занята другим игроком — не пускаем
-      const occupied = [...players.values()].some(pl => pl.id !== id && pl.x === nx && pl.y === ny);
-      if (occupied) return;
-
-      p.x = nx;
-      p.y = ny;
-      broadcastState();
+function assignRoles(room) {
+    const ids = Array.from(room.players.keys());
+    const shuffled = ids.sort(() => Math.random() - 0.5);
+    const maniacId = shuffled[0];
+    for (const id of ids) {
+        const entry = room.players.get(id);
+        const role = id === maniacId ? Person.ROLES.MANIAC : Person.ROLES.SURVIVOR;
+        entry.person = Person.createPerson(id, entry.name, role);
     }
-  });
+}
 
-  ws.on('close', () => {
-    players.delete(id);
-    console.log(`Игрок ${id} отключился (${players.size} онлайн)`);
-    broadcastState();
-  });
+function startGame(room) {
+    if (room.started) return;
+    room.started = true;
+    room.timeLeft = ROUND_TIME;
+    assignRoles(room);
+
+    io.to(room.code).emit('gameStart', {
+        obstacles: room.obstacles,
+        worldWidth: Person.WORLD_WIDTH,
+        worldHeight: Person.WORLD_HEIGHT,
+        players: Array.from(room.players.values()).map(p => ({
+            id: p.id, name: p.name, role: p.person.role
+        })),
+        youAre: null // клиент подставит себя сам по своему id
+    });
+
+    room.tickTimer = setInterval(() => tickRoom(room), 1000 / TICK_RATE);
+    room.broadcastTimer = setInterval(() => broadcastState(room), 1000 / BROADCAST_RATE);
+    room.roundTimer = setInterval(() => {
+        room.timeLeft -= 1;
+        if (room.timeLeft <= 0) {
+            endGame(room, 'survivors', 'Время вышло');
+        }
+    }, 1000);
+}
+
+function tickRoom(room) {
+    const dt = 1 / TICK_RATE;
+    const people = Array.from(room.players.values()).map(p => p.person);
+    const maniac = people.find(p => p.role === Person.ROLES.MANIAC);
+
+    for (const entry of room.players.values()) {
+        Person.stepPerson(entry.person, entry.input, dt, room.obstacles);
+    }
+
+    if (maniac) {
+        for (const p of people) {
+            if (p.role === Person.ROLES.SURVIVOR && p.alive) {
+                if (Person.distance(maniac, p) < Person.KILL_RADIUS) {
+                    p.alive = false;
+                }
+            }
+        }
+        const survivorsLeft = people.some(p => p.role === Person.ROLES.SURVIVOR && p.alive);
+        if (!survivorsLeft) {
+            endGame(room, 'maniac', 'Все выжившие пойманы');
+        }
+    }
+}
+
+function broadcastState(room) {
+    io.to(room.code).emit('state', {
+        timeLeft: Math.ceil(room.timeLeft),
+        players: Array.from(room.players.values()).map(p => ({
+            id: p.id,
+            x: p.person.x,
+            y: p.person.y,
+            facing: p.person.facing,
+            role: p.person.role,
+            alive: p.person.alive
+        }))
+    });
+}
+
+function endGame(room, winner, reason) {
+    io.to(room.code).emit('gameOver', { winner, reason });
+    clearInterval(room.tickTimer);
+    clearInterval(room.broadcastTimer);
+    clearInterval(room.roundTimer);
+    room.started = false;
+}
+
+function destroyRoomIfEmpty(room) {
+    if (room.players.size === 0) {
+        clearInterval(room.tickTimer);
+        clearInterval(room.broadcastTimer);
+        clearInterval(room.roundTimer);
+        rooms.delete(room.code);
+    }
+}
+
+io.on('connection', (socket) => {
+    let currentRoom = null;
+
+    // Создать новую комнату
+    socket.on('createRoom', ({ name }) => {
+        const room = createRoom();
+        joinRoom(room, name);
+    });
+
+    // Присоединиться по коду
+    socket.on('joinRoom', ({ name, code }) => {
+        const room = rooms.get((code || '').toUpperCase());
+        if (!room) {
+            socket.emit('errorMsg', 'Комната не найдена');
+            return;
+        }
+        if (room.players.size >= MAX_PLAYERS) {
+            socket.emit('errorMsg', 'Комната заполнена');
+            return;
+        }
+        if (room.started) {
+            socket.emit('errorMsg', 'Игра уже началась');
+            return;
+        }
+        joinRoom(room, name);
+    });
+
+    function joinRoom(room, name) {
+        currentRoom = room;
+        socket.join(room.code);
+        room.players.set(socket.id, {
+            id: socket.id,
+            name: (name || 'Игрок').slice(0, 20),
+            person: null,
+            input: { dx: 0, dy: 0 }
+        });
+        socket.emit('joined', { code: room.code, selfId: socket.id });
+        io.to(room.code).emit('lobbyUpdate', lobbyPayload(room));
+    }
+
+    socket.on('startGame', () => {
+        if (currentRoom && !currentRoom.started && currentRoom.players.size >= 2) {
+            startGame(currentRoom);
+        }
+    });
+
+    // input: { dx, dy } — нормализованное направление от джойстика/клавиш
+    socket.on('input', (input) => {
+        if (!currentRoom) return;
+        const entry = currentRoom.players.get(socket.id);
+        if (entry) entry.input = { dx: input.dx || 0, dy: input.dy || 0 };
+    });
+
+    socket.on('disconnect', () => {
+        if (!currentRoom) return;
+        currentRoom.players.delete(socket.id);
+        io.to(currentRoom.code).emit('lobbyUpdate', lobbyPayload(currentRoom));
+        io.to(currentRoom.code).emit('playerLeft', { id: socket.id });
+        destroyRoomIfEmpty(currentRoom);
+    });
 });
 
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Сервер запущен: http://localhost:${PORT}`);
+    console.log(`Сервер запущен на порту ${PORT}`);
 });
