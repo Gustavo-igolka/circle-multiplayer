@@ -6,7 +6,7 @@ const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const Person = require('./shared/person.js');
+const Person = require('./person.js');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,9 +15,7 @@ const io = new Server(server, {
 });
 
 // Отдаём клиентские файлы и общий модуль person.js
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/shared', express.static(path.join(__dirname, 'shared')));
-
+app.use(express.static(__dirname));
 // Простой health-check эндпоинт — пригодится для keep-alive пинга (см. инструкцию по деплою)
 app.get('/health', (req, res) => res.send('ok'));
 
