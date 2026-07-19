@@ -1,51 +1,40 @@
 // person.js
-// Общий модуль для описания персонажа (Маньяк или Выживший) и его физики.
-// Работает и в браузере (<script src="/shared/person.js">), и в Node (require).
+// Физика и создание персонажа. Характеристики (здоровье/скорость/способности)
+// берутся из roles.js по связке (role, characterId).
+// Работает и в браузере, и в Node.
 
 (function (root, factory) {
     if (typeof module === 'object' && module.exports) {
-        module.exports = factory();
+        module.exports = factory(require('./roles.js'));
     } else {
-        root.PersonModule = factory();
+        root.PersonModule = factory(root.RolesModule);
     }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (Roles) {
 
     const WORLD_WIDTH = 2000;
     const WORLD_HEIGHT = 1500;
 
-    const ROLES = {
-        MANIAC: 'maniac',
-        SURVIVOR: 'survivor'
-    };
-
-    // Параметры движения по роли
-    const ROLE_CONFIG = {
-        maniac: { width: 32, height: 32, speed: 195, acceleration: 850, friction: 0.88 },
-        survivor: { width: 28, height: 28, speed: 220, acceleration: 900, friction: 0.88 }
-    };
-
-    const KILL_RADIUS = 30;
-
-    function createPerson(id, name, role) {
-        const cfg = ROLE_CONFIG[role] || ROLE_CONFIG.survivor;
+    function createPerson(id, name, role, characterId) {
+        const character = Roles.getCharacter(role, characterId);
+        const phys = Roles.PHYSICS_DEFAULTS[role];
         return {
-            id,
-            name,
-            role,
+            id, name, role, characterId,
             x: WORLD_WIDTH / 2 + (Math.random() * 100 - 50),
             y: WORLD_HEIGHT / 2 + (Math.random() * 100 - 50),
-            width: cfg.width,
-            height: cfg.height,
+            width: phys.width,
+            height: phys.height,
             vx: 0, vy: 0,
-            speed: cfg.speed,
-            acceleration: cfg.acceleration,
-            friction: cfg.friction,
+            speed: character.speed,
+            acceleration: phys.acceleration,
+            friction: phys.friction,
             facing: 'down',
-            alive: true // для выживших: false = пойман
+            health: character.health,
+            maxHealth: character.health,
+            alive: true
         };
     }
 
-    // Препятствия — дома и деревья (те же координаты, что были в исходном index.html)
+    // Препятствия — дома и деревья
     function generateObstacles() {
         const obstacles = [];
         const houses = [
@@ -80,7 +69,6 @@
         return obstacles;
     }
 
-    // Разрешение столкновений с препятствиями (мутирует rect)
     function resolveCollision(rect, obstacles) {
         for (const obs of obstacles) {
             if (obs.isTree) {
@@ -89,10 +77,7 @@
                 const distance = Math.sqrt(distX * distX + distY * distY);
                 const minDist = obs.radius + rect.w / 2;
                 if (distance < minDist) {
-                    if (distance === 0) {
-                        rect.y = obs.centerY - minDist;
-                        continue;
-                    }
+                    if (distance === 0) { rect.y = obs.centerY - minDist; continue; }
                     const angle = Math.atan2(distY, distX);
                     const overlap = minDist - distance;
                     rect.x += Math.cos(angle) * overlap;
@@ -117,21 +102,26 @@
         }
     }
 
-    // input: { dx, dy } нормализованный вектор направления (-1..1)
-    // Обновляет скорость, направление взгляда, позицию и коллизии персонажа за deltaTime секунд.
-    function stepPerson(person, input, deltaTime, obstacles) {
+    // input: { dx, dy } нормализованное направление.
+    // options: { speedMultiplier = 1, frozen = false } — для пассивок/капканов.
+    function stepPerson(person, input, deltaTime, obstacles, options) {
+        options = options || {};
+        const speedMultiplier = options.speedMultiplier || 1;
+        const frozen = !!options.frozen;
+
         if (!person.alive) return;
 
-        const dx = input ? input.dx : 0;
-        const dy = input ? input.dy : 0;
+        const dx = (!frozen && input) ? input.dx : 0;
+        const dy = (!frozen && input) ? input.dy : 0;
+        const effectiveSpeed = person.speed * speedMultiplier;
 
         if (dx !== 0 || dy !== 0) {
             person.vx += dx * person.acceleration * deltaTime;
             person.vy += dy * person.acceleration * deltaTime;
             const spd = Math.hypot(person.vx, person.vy);
-            if (spd > person.speed) {
-                person.vx = (person.vx / spd) * person.speed;
-                person.vy = (person.vy / spd) * person.speed;
+            if (spd > effectiveSpeed) {
+                person.vx = (person.vx / spd) * effectiveSpeed;
+                person.vy = (person.vy / spd) * effectiveSpeed;
             }
             if (Math.abs(dx) > Math.abs(dy)) person.facing = dx > 0 ? 'right' : 'left';
             else person.facing = dy > 0 ? 'down' : 'up';
@@ -156,16 +146,25 @@
         return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
+    // Прямоугольник M1-удара перед персонажем, по направлению facing
+    function getAttackHitbox(person, hitboxWidth, hitboxHeight) {
+        const cx = person.x + person.width / 2;
+        const cy = person.y + person.height / 2;
+        switch (person.facing) {
+            case 'left': return { x: cx - person.width / 2 - hitboxWidth, y: cy - hitboxHeight / 2, w: hitboxWidth, h: hitboxHeight };
+            case 'right': return { x: cx + person.width / 2, y: cy - hitboxHeight / 2, w: hitboxWidth, h: hitboxHeight };
+            case 'up': return { x: cx - hitboxHeight / 2, y: cy - person.height / 2 - hitboxWidth, w: hitboxHeight, h: hitboxWidth };
+            default: return { x: cx - hitboxHeight / 2, y: cy + person.height / 2, w: hitboxHeight, h: hitboxWidth };
+        }
+    }
+
+    function rectsOverlap(a, b) {
+        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
     return {
-        WORLD_WIDTH,
-        WORLD_HEIGHT,
-        ROLES,
-        ROLE_CONFIG,
-        KILL_RADIUS,
-        createPerson,
-        generateObstacles,
-        resolveCollision,
-        stepPerson,
-        distance
+        WORLD_WIDTH, WORLD_HEIGHT,
+        createPerson, generateObstacles, resolveCollision, stepPerson,
+        distance, getAttackHitbox, rectsOverlap
     };
 });

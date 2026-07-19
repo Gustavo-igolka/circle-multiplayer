@@ -59,6 +59,32 @@
         .players-list { margin-top: 16px; font-size: 14px; color: #888; text-align: left; }
         .players-list div { padding: 4px 0; }
         #statusMsg { color: #c56a6a; font-size: 13px; min-height: 18px; margin-top: 6px; }
+
+        .select-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.94);
+            display: none; justify-content: center; align-items: center;
+            z-index: 100; color: #ccc; padding: 16px;
+        }
+        .select-panel {
+            background: #1a1a1a; padding: 20px; border-radius: 16px;
+            border: 1px solid #333; max-width: 95vw; max-height: 92vh;
+            overflow-y: auto; text-align: center;
+        }
+        .select-panel h1 { color: #d4a373; margin-bottom: 4px; font-size: 22px; letter-spacing: 1px; }
+        #selectTimer { color: #888; font-size: 13px; margin-bottom: 14px; }
+        .char-cards { display: flex; flex-direction: column; gap: 10px; }
+        .char-card {
+            background: #232323; border: 2px solid #3a3a3a; border-radius: 10px;
+            padding: 12px 14px; text-align: left; cursor: pointer; transition: 0.15s;
+        }
+        .char-card:hover { border-color: #d4a373; }
+        .char-card.taken { opacity: 0.4; cursor: not-allowed; }
+        .char-card.chosen { border-color: #7aaa5a; background: #223122; }
+        .char-card h3 { color: #d4a373; font-size: 17px; margin-bottom: 4px; }
+        .char-card .desc { color: #999; font-size: 12px; margin-bottom: 8px; font-style: italic; }
+        .char-card .stats { color: #ccc; font-size: 12px; line-height: 1.6; }
+        .char-card .stats b { color: #e8c99a; }
+        #selectStatus { color: #7aaa5a; margin-top: 12px; font-size: 13px; min-height: 18px; }
     </style>
 </head>
 <body>
@@ -83,10 +109,19 @@
         </div>
     </div>
 
+    <div id="selectOverlay" class="select-overlay">
+        <div class="select-panel">
+            <h1 id="selectTitle">Выбор персонажа</h1>
+            <div id="selectTimer"></div>
+            <div id="charCards" class="char-cards"></div>
+            <div id="selectStatus"></div>
+        </div>
+    </div>
+
     <div class="game-wrapper">
         <canvas id="gameCanvas" width="800" height="600"></canvas>
     </div>
-    <div class="instruction">WASD / стрелки, либо джойстик пальцем слева</div>
+    <div class="instruction">Джойстик слева — движение. Справа: убийца — M1/Q/E, выживший — F</div>
 
     <!-- Музыка: положи свои файлы в /public/music/ с этими именами (см. пояснение в чате) -->
     <audio id="bgMusic" loop preload="auto">
@@ -97,6 +132,7 @@
     </audio>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/roles.js"></script>
     <script src="/person.js"></script>
     <script src="/engine.js"></script>
 </body>
